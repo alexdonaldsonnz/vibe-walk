@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+numpy
+scipy
+faster-whisper
+httpx
+python-dotenv
+claude-code-sdk

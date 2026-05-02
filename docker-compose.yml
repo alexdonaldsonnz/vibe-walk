@@ -1,0 +1,10 @@
+services:
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.2.2
+    ports:
+      - "8880:8880"
+    volumes:
+      - kokoro-models:/app/models
+
+volumes:
+  kokoro-models:
