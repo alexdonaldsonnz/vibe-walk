@@ -60,7 +60,7 @@ async def ws_endpoint(ws: WebSocket):
                 audio_buffer.append(chunk)
 
                 total_samples = sum(len(c) for c in audio_buffer)
-                if total_samples >= sample_rate * 3:
+                if total_samples >= sample_rate * 2:
                     audio = np.concatenate(audio_buffer)
                     audio_buffer = []
 

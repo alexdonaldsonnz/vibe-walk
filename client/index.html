@@ -185,7 +185,7 @@ class AudioCaptureProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
     this._buf = [];
-    this._chunkSize = sampleRate * 3; // 3 seconds
+    this._chunkSize = sampleRate * 1; // 1 second chunks
   }
   process(inputs) {
     const ch = inputs[0]?.[0];
