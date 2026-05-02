@@ -255,6 +255,7 @@ function showError(msg) {
 // ── Audio playback ───────────────────────────────────────────────────────────
 async function playAudio(data) {
   try {
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
     const ab = data instanceof Blob ? await data.arrayBuffer() : data;
     const buf = await audioCtx.decodeAudioData(ab.slice(0));
     const src = audioCtx.createBufferSource();
@@ -326,9 +327,9 @@ function handleMessage(msg) {
 async function startSession() {
   document.getElementById('start-overlay').style.display = 'none';
 
-  // Init AudioContext (must happen in user gesture)
+  // Create AudioContext — don't await resume() here, it needs a real user gesture
+  // on some browsers. We resume lazily when playing back audio.
   audioCtx = new AudioContext();
-  await audioCtx.resume();
 
   // Connect WebSocket
   ws = new WebSocket(WS_URL);
@@ -390,7 +391,9 @@ async function setupMic() {
   ws.send(JSON.stringify({ type: 'hello', sample_rate: audioCtx.sampleRate }));
 }
 
-document.getElementById('start-btn').addEventListener('click', startSession);
+document.getElementById('start-btn').addEventListener('click', () => {
+  startSession().catch(e => showError('Session error: ' + e.message));
+});
 
 // Keep screen awake via NoSleep technique (video loop)
 // Helps when walking for long sessions
