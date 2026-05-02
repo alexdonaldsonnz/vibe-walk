@@ -41,10 +41,12 @@ if [ -n "$TAILSCALE_HOST" ]; then
     SSL_CERTFILE="${TAILSCALE_HOST}.crt"
     echo "Phone URL: https://${TAILSCALE_HOST}:${PORT}"
   else
-    # Try tailscale serve as an alternative
-    echo "Could not find TLS cert files. Trying tailscale serve…"
-    tailscale serve --bg "http://localhost:${PORT}" 2>/dev/null || true
-    echo "Phone URL: https://${TAILSCALE_HOST}"
+    echo "TLS cert not available. Running HTTP on all interfaces."
+    echo "Phone URL (Tailscale IP): http://$(tailscale ip -4 2>/dev/null | head -1):${PORT}"
+    echo ""
+    echo "To enable HTTPS, run in your tailnet admin panel:"
+    echo "  https://login.tailscale.com/admin/dns -> enable HTTPS certificates"
+    echo "  then re-run this script"
   fi
 else
   echo "No Tailscale — HTTP only (localhost)"
