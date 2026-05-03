@@ -73,7 +73,37 @@ body {
   text-transform: uppercase;
   padding: 8px 16px 4px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
+
+.section-label span { flex: 1; }
+
+#send-btn {
+  background: #22c55e;
+  color: #000;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  -webkit-tap-highlight-color: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
+#send-btn.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#send-btn:active { background: #16a34a; }
+#send-btn:disabled { background: #555; color: #888; }
 
 .section-body {
   flex: 1;
@@ -90,6 +120,13 @@ body {
 
 .pending-word { color: #888; font-style: italic; }
 .submitted    { color: #666; }
+
+.post-response-sep {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #1e1e1e;
+}
+.post-response-transcript { color: #aaa; }
 
 #response-body.thinking-state { color: #888; font-style: italic; }
 
@@ -160,8 +197,11 @@ body {
 
 <div id="main">
   <div class="section" style="flex: 0.6;">
-    <div class="section-label">You said</div>
-    <div class="section-body" id="transcript-body"></div>
+    <div class="section-label">
+      <span>You said</span>
+      <button id="send-btn">Send</button>
+    </div>
+    <div class="section-body" id="transcript-body" contenteditable="true" spellcheck="false"></div>
   </div>
   <div class="section" style="flex: 1.4;">
     <div class="section-label">Claude</div>
@@ -178,6 +218,7 @@ let workletNode = null;
 let mediaStream = null;
 let nextPlayTime = 0;
 let isCapturing = false;
+let postResponse = false;
 
 // ── AudioWorklet (inlined as Blob) ───────────────────────────────────────────
 const WORKLET_CODE = `
@@ -207,6 +248,7 @@ const $statusText = document.getElementById('status-text');
 const $transcript = document.getElementById('transcript-body');
 const $response   = document.getElementById('response-body');
 const $error      = document.getElementById('error-banner');
+const $sendBtn    = document.getElementById('send-btn');
 
 const STATUS_LABELS = {
   connecting: 'Connecting…',
@@ -221,15 +263,42 @@ function setStatus(state) {
   $statusText.textContent = STATUS_LABELS[state] ?? state;
 }
 
+function updateSendBtn() {
+  const hasText = $transcript.innerText.trim().length > 0;
+  $sendBtn.classList.toggle('visible', hasText);
+}
+
 function appendTranscript(text) {
-  const span = document.createElement('span');
-  span.textContent = text + ' ';
-  $transcript.appendChild(span);
-  $transcript.scrollTop = $transcript.scrollHeight;
+  if (postResponse) {
+    if (!$response.querySelector('.post-response-sep')) {
+      const sep = document.createElement('div');
+      sep.className = 'post-response-sep';
+      $response.appendChild(sep);
+    }
+    const span = document.createElement('span');
+    span.className = 'post-response-transcript';
+    span.textContent = text + ' ';
+    $response.appendChild(span);
+    $response.scrollTop = $response.scrollHeight;
+  } else {
+    const span = document.createElement('span');
+    span.textContent = text + ' ';
+    $transcript.appendChild(span);
+    $transcript.scrollTop = $transcript.scrollHeight;
+    updateSendBtn();
+  }
 }
 
 function markTranscriptSubmitted() {
   $transcript.querySelectorAll('span').forEach(s => s.className = 'submitted');
+  $sendBtn.classList.remove('visible');
+  $sendBtn.disabled = true;
+}
+
+function resetTranscriptAfterResponse() {
+  $transcript.innerHTML = '';
+  $sendBtn.disabled = false;
+  updateSendBtn();
 }
 
 function appendResponse(text) {
@@ -298,9 +367,15 @@ function handleMessage(msg) {
 
     case 'prompt':
       markTranscriptSubmitted();
+      postResponse = false;
       clearResponse();
       $response.className = 'section-body thinking-state';
       $response.textContent = '…';
+      break;
+
+    case 'response_done':
+      postResponse = true;
+      resetTranscriptAfterResponse();
       break;
 
     case 'response_chunk':
@@ -309,10 +384,6 @@ function handleMessage(msg) {
         $response.className = 'section-body';
       }
       appendResponse(msg.text);
-      break;
-
-    case 'response_done':
-      // ensure we show full text (partial messages may have lagged)
       break;
 
     case 'error':
@@ -393,6 +464,13 @@ async function setupMic() {
 
 document.getElementById('start-btn').addEventListener('click', () => {
   startSession().catch(e => showError('Session error: ' + e.message));
+});
+
+$sendBtn.addEventListener('click', () => {
+  const text = $transcript.innerText.trim();
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'submit', text }));
+  markTranscriptSubmitted();
 });
 
 // Keep screen awake via NoSleep technique (video loop)

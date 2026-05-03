@@ -55,6 +55,21 @@ async def ws_endpoint(ws: WebSocket):
                     sample_rate = int(data["sample_rate"])
                     await ws.send_json({"type": "ready"})
 
+                elif data.get("type") == "submit" and not is_processing:
+                    prompt = data.get("text", "").strip()
+                    if prompt:
+                        is_processing = True
+                        stt.clear()
+                        await ws.send_json({"type": "status", "state": "thinking"})
+                        await ws.send_json({"type": "prompt", "text": prompt})
+                        try:
+                            await _respond(ws, claude, prompt)
+                        except Exception as e:
+                            await ws.send_json({"type": "error", "message": str(e)})
+                        is_processing = False
+                        audio_buffer = []
+                        await ws.send_json({"type": "status", "state": "listening"})
+
             elif "bytes" in msg and not is_processing and sample_rate:
                 chunk = np.frombuffer(msg["bytes"], dtype=np.float32).copy()
                 audio_buffer.append(chunk)
