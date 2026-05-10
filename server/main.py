@@ -124,21 +124,29 @@ async def _respond(ws: WebSocket, claude: ClaudeSession, prompt: str) -> None:
     stream_error: Exception | None = None
 
     try:
-        async for chunk in claude.send_prompt(prompt):
-            full_response += chunk
-            await ws.send_json({"type": "response_chunk", "text": chunk})
+        async for event in claude.send_prompt(prompt):
+            if event["kind"] == "step":
+                await ws.send_json({
+                    "type": "step",
+                    "tool": event["tool"],
+                    "summary": event["summary"],
+                })
+            elif event["kind"] == "text":
+                chunk = event["text"]
+                full_response += chunk
+                await ws.send_json({"type": "response_chunk", "text": chunk})
 
-            sentence_buf += chunk
-            while True:
-                m = re.search(r"(?<=[.!?])\s+", sentence_buf)
-                if not m:
-                    break
-                sentence = sentence_buf[: m.start() + 1].strip()
-                sentence_buf = sentence_buf[m.end():]
-                if sentence:
-                    audio = await synthesize(sentence)
-                    if audio:
-                        await ws.send_bytes(audio)
+                sentence_buf += chunk
+                while True:
+                    m = re.search(r"(?<=[.!?])\s+", sentence_buf)
+                    if not m:
+                        break
+                    sentence = sentence_buf[: m.start() + 1].strip()
+                    sentence_buf = sentence_buf[m.end():]
+                    if sentence:
+                        audio = await synthesize(sentence)
+                        if audio:
+                            await ws.send_bytes(audio)
     except Exception as e:
         stream_error = e
 

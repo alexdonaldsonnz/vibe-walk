@@ -186,6 +186,62 @@ body {
   50%       { opacity: 0; }
 }
 
+/* ── Intermediate steps ───────────────────────────────────────────────────── */
+.msg-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 0;
+}
+
+.msg-steps.has-steps {
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--faint);
+}
+
+.msg-step {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  min-width: 0;
+}
+
+.msg-step::before {
+  content: '›';
+  color: var(--muted);
+  margin-right: 8px;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.step-tool {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--blue);
+  flex-shrink: 0;
+  min-width: 46px;
+  margin-right: 8px;
+  opacity: 0.8;
+}
+
+.step-summary {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Hide steps when setting is off */
+#messages.steps-hidden .msg-steps { display: none !important; }
+
 /* ── Compose ─────────────────────────────────────────────────────────────────── */
 #compose {
   flex-shrink: 0;
@@ -777,7 +833,8 @@ let nextPlayTime = 0;
 let isRecording  = false;
 let isPaused     = false;
 let isProcessing = false;
-let currentClaudeEl = null;
+let currentClaudeEl  = null;
+let currentStepsEl   = null;
 let micOk        = false;
 
 // ── AudioWorklet ──────────────────────────────────────────────────────────────
@@ -907,10 +964,16 @@ function addMessage(role, text) {
   body.className = 'msg-body';
   if (text) body.textContent = text;
   div.appendChild(roleEl);
+  let steps = null;
+  if (role === 'claude') {
+    steps = document.createElement('div');
+    steps.className = 'msg-steps';
+    div.appendChild(steps);
+  }
   div.appendChild(body);
   $messages.appendChild(div);
   $messages.scrollTop = $messages.scrollHeight;
-  return { div, body };
+  return { div, body, steps };
 }
 
 // ── Audio playback ────────────────────────────────────────────────────────────
@@ -964,11 +1027,32 @@ function handleMessage(msg) {
     }
 
     case 'prompt': {
-      const { div, body } = addMessage('claude', '');
+      const { div, body, steps } = addMessage('claude', '');
       div.classList.add('thinking');
       currentClaudeEl = body;
+      currentStepsEl  = steps;
       break;
     }
+
+    case 'step':
+      if (currentStepsEl) {
+        const stepDiv = document.createElement('div');
+        stepDiv.className = 'msg-step';
+        const toolSpan = document.createElement('span');
+        toolSpan.className = 'step-tool';
+        toolSpan.textContent = msg.tool;
+        stepDiv.appendChild(toolSpan);
+        if (msg.summary) {
+          const summarySpan = document.createElement('span');
+          summarySpan.className = 'step-summary';
+          summarySpan.textContent = msg.summary;
+          stepDiv.appendChild(summarySpan);
+        }
+        currentStepsEl.appendChild(stepDiv);
+        currentStepsEl.classList.add('has-steps');
+        $messages.scrollTop = $messages.scrollHeight;
+      }
+      break;
 
     case 'response_chunk':
       if (currentClaudeEl) {
@@ -983,6 +1067,7 @@ function handleMessage(msg) {
 
     case 'response_done':
       currentClaudeEl = null;
+      currentStepsEl  = null;
       isProcessing = false;
       break;
 
@@ -1215,7 +1300,9 @@ function syncAutoSubmitRow() {
   $overlay .addEventListener('click', closeDrawer);
 
   document.getElementById('s-show-intermediate').addEventListener('change', e => {
-    _settings.showIntermediate = e.target.checked; saveSettings();
+    _settings.showIntermediate = e.target.checked;
+    saveSettings();
+    $messages.classList.toggle('steps-hidden', !_settings.showIntermediate);
   });
   document.getElementById('s-tts-mode').addEventListener('change', e => {
     _settings.ttsMode = e.target.value; saveSettings();
@@ -1234,6 +1321,7 @@ function syncAutoSubmitRow() {
   });
 
   applySettingsToUI();
+  $messages.classList.toggle('steps-hidden', !_settings.showIntermediate);
 })();
 </script>
 </body>
