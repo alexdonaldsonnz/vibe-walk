@@ -7,6 +7,7 @@ from claude_code_sdk import (
     ResultMessage,
     TextBlock,
 )
+from claude_code_sdk._internal.message_parser import MessageParseError
 
 
 class ClaudeSession:
@@ -29,15 +30,20 @@ class ClaudeSession:
             raise RuntimeError("Session not started")
         await self._client.query(prompt)
         seen_by_block: dict[int, int] = {}
-        async for msg in self._client.receive_response():
-            if isinstance(msg, AssistantMessage):
-                for i, block in enumerate(msg.content):
-                    if isinstance(block, TextBlock) and block.text:
-                        prev = seen_by_block.get(i, 0)
-                        delta = block.text[prev:]
-                        if delta:
-                            yield delta
-                            seen_by_block[i] = len(block.text)
+        try:
+            async for msg in self._client.receive_response():
+                if isinstance(msg, AssistantMessage):
+                    for i, block in enumerate(msg.content):
+                        if isinstance(block, TextBlock) and block.text:
+                            prev = seen_by_block.get(i, 0)
+                            delta = block.text[prev:]
+                            if delta:
+                                yield delta
+                                seen_by_block[i] = len(block.text)
+        except MessageParseError as e:
+            if "rate_limit_event" in str(e):
+                raise RuntimeError("Claude is rate limited — please wait a moment and try again") from None
+            raise
 
     async def stop(self) -> None:
         if self._client:

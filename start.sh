@@ -33,6 +33,8 @@ if command -v tailscale &>/dev/null; then
     2>/dev/null || true)
 fi
 
+USE_TAILSCALE_SERVE=false
+
 if [ -n "$TAILSCALE_HOST" ]; then
   echo "Tailscale host: $TAILSCALE_HOST"
   tailscale cert "$TAILSCALE_HOST" 2>/dev/null || true
@@ -41,12 +43,20 @@ if [ -n "$TAILSCALE_HOST" ]; then
     SSL_CERTFILE="${TAILSCALE_HOST}.crt"
     echo "Phone URL: https://${TAILSCALE_HOST}:${PORT}"
   else
-    echo "TLS cert not available. Running HTTP on all interfaces."
-    echo "Phone URL (Tailscale IP): http://$(tailscale ip -4 2>/dev/null | head -1):${PORT}"
-    echo ""
-    echo "To enable HTTPS, run in your tailnet admin panel:"
-    echo "  https://login.tailscale.com/admin/dns -> enable HTTPS certificates"
-    echo "  then re-run this script"
+    # Try tailscale serve as a fallback HTTPS proxy (requires no cert management)
+    echo "TLS cert not available — trying tailscale serve as HTTPS proxy…"
+    if tailscale serve --bg "$PORT" 2>/dev/null; then
+      USE_TAILSCALE_SERVE=true
+      echo "Phone URL: https://${TAILSCALE_HOST}"
+      echo "(tailscale serve is proxying HTTPS → localhost:${PORT})"
+    else
+      echo "tailscale serve unavailable. Running HTTP only — mic will NOT work on Android Firefox."
+      echo "Phone URL (Tailscale IP): http://$(tailscale ip -4 2>/dev/null | head -1):${PORT}"
+      echo ""
+      echo "To fix, enable HTTPS certificates in your tailnet admin panel:"
+      echo "  https://login.tailscale.com/admin/dns -> enable HTTPS certificates"
+      echo "  then re-run this script"
+    fi
   fi
 else
   echo "No Tailscale — HTTP only (localhost)"
@@ -55,10 +65,15 @@ fi
 echo ""
 
 # ── Start server ──────────────────────────────────────────────────────────────
+# Unset API key so claude CLI uses the subscription login, not API credits
+unset ANTHROPIC_API_KEY
 if [ -n "$SSL_KEYFILE" ]; then
-  exec .venv/bin/uvicorn server.main:app \
+  exec caffeinate -si .venv/bin/uvicorn server.main:app \
     --host 0.0.0.0 --port "$PORT" \
     --ssl-keyfile "$SSL_KEYFILE" --ssl-certfile "$SSL_CERTFILE"
+elif [ "$USE_TAILSCALE_SERVE" = true ]; then
+  # tailscale serve proxies externally; bind only to localhost
+  exec caffeinate -si .venv/bin/uvicorn server.main:app --host 127.0.0.1 --port "$PORT"
 else
-  exec .venv/bin/uvicorn server.main:app --host 0.0.0.0 --port "$PORT"
+  exec caffeinate -si .venv/bin/uvicorn server.main:app --host 0.0.0.0 --port "$PORT"
 fi

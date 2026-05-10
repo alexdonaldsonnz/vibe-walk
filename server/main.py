@@ -55,6 +55,10 @@ async def ws_endpoint(ws: WebSocket):
                     sample_rate = int(data["sample_rate"])
                     await ws.send_json({"type": "ready"})
 
+                elif data.get("type") == "cancel":
+                    stt.clear()
+                    audio_buffer = []
+
                 elif data.get("type") == "submit" and not is_processing:
                     prompt = data.get("text", "").strip()
                     if prompt:
@@ -117,26 +121,34 @@ async def ws_endpoint(ws: WebSocket):
 async def _respond(ws: WebSocket, claude: ClaudeSession, prompt: str) -> None:
     sentence_buf = ""
     full_response = ""
+    stream_error: Exception | None = None
 
-    async for chunk in claude.send_prompt(prompt):
-        full_response += chunk
-        await ws.send_json({"type": "response_chunk", "text": chunk})
+    try:
+        async for chunk in claude.send_prompt(prompt):
+            full_response += chunk
+            await ws.send_json({"type": "response_chunk", "text": chunk})
 
-        sentence_buf += chunk
-        while True:
-            m = re.search(r"(?<=[.!?])\s+", sentence_buf)
-            if not m:
-                break
-            sentence = sentence_buf[: m.start() + 1].strip()
-            sentence_buf = sentence_buf[m.end():]
-            if sentence:
-                audio = await synthesize(sentence)
-                if audio:
-                    await ws.send_bytes(audio)
+            sentence_buf += chunk
+            while True:
+                m = re.search(r"(?<=[.!?])\s+", sentence_buf)
+                if not m:
+                    break
+                sentence = sentence_buf[: m.start() + 1].strip()
+                sentence_buf = sentence_buf[m.end():]
+                if sentence:
+                    audio = await synthesize(sentence)
+                    if audio:
+                        await ws.send_bytes(audio)
+    except Exception as e:
+        stream_error = e
 
     if sentence_buf.strip():
         audio = await synthesize(sentence_buf.strip())
         if audio:
             await ws.send_bytes(audio)
-
     await ws.send_json({"type": "response_done", "full_text": full_response})
+
+    # Only surface stream errors when no response was received — post-response
+    # SDK notifications (e.g. rate_limit_event) are noise once the reply is done.
+    if stream_error and not full_response:
+        raise stream_error
